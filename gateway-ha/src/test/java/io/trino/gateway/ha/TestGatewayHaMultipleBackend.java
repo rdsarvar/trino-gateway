@@ -4,10 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import com.google.inject.Injector;
+import io.trino.gateway.baseapp.BaseApp;
 import io.trino.gateway.ha.config.ProxyBackendConfiguration;
+import io.trino.gateway.ha.router.BackendHealth;
+import io.trino.gateway.ha.router.RoutingManager;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -18,6 +23,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestInstance.Lifecycle;
+import java.lang.reflect.Field;
+import java.net.HttpURLConnection;
 
 @TestInstance(Lifecycle.PER_CLASS)
 public class TestGatewayHaMultipleBackend {
@@ -53,7 +60,8 @@ public class TestGatewayHaMultipleBackend {
 
     // Start Gateway
     String[] args = {"server", testConfig.getConfigFilePath()};
-    HaGatewayLauncher.main(args);
+    HaGatewayLauncher haGatewayLauncher = new HaGatewayLauncher("io.trino");
+    haGatewayLauncher.run(args);
     // Now populate the backend
     HaGatewayTestUtils.setUpBackend(
         "trino1", "http://localhost:" + backend1Port, "externalUrl", true, "adhoc", routerPort);
@@ -64,6 +72,18 @@ public class TestGatewayHaMultipleBackend {
             "custom", "http://localhost:" + customBackendPort, "externalUrl", true, "custom",
             routerPort);
 
+
+    // When a backend becomes active for the first time OR is transitioned from inactive to active it will not yet be
+    // treated as healthy. Without a real health check happening we will extract the RoutingManager and set them to healthy manually
+    Field privateInjectorField = BaseApp.class.
+            getDeclaredField("injector");
+    privateInjectorField.setAccessible(true);
+
+    Injector injector = (Injector) privateInjectorField.get(haGatewayLauncher);
+    RoutingManager routingManager = injector.getInstance(RoutingManager.class);
+    routingManager.updateBackendHealth("trino1", BackendHealth.HEALTHY);
+    routingManager.updateBackendHealth("trino2", BackendHealth.HEALTHY);
+    routingManager.updateBackendHealth("custom", BackendHealth.HEALTHY);
   }
 
   @Test
@@ -77,7 +97,7 @@ public class TestGatewayHaMultipleBackend {
                     .addHeader("X-Trino-Routing-Group", "custom")
                     .build();
     Response response1 = httpClient.newCall(request1).execute();
-    assertEquals(response1.body().string(), CUSTOM_RESPONSE);
+    assertEquals(CUSTOM_RESPONSE, response1.body().string());
 
     Request request2 =
             new Request.Builder()
@@ -86,7 +106,7 @@ public class TestGatewayHaMultipleBackend {
                     .addHeader("X-Trino-Routing-Group", "custom")
                     .build();
     Response response2 = httpClient.newCall(request2).execute();
-    assertEquals(response2.code(), 404);
+    assertEquals(HttpURLConnection.HTTP_NOT_FOUND, response2.code());
   }
 
   @Test
@@ -142,5 +162,6 @@ public class TestGatewayHaMultipleBackend {
   public void cleanup() {
     adhocBackend.stop();
     scheduledBackend.stop();
+    customBackend.stop();
   }
 }

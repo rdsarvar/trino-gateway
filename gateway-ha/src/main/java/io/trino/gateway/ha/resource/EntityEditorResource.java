@@ -9,6 +9,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
 import io.dropwizard.views.common.View;
 import io.trino.gateway.ha.config.ProxyBackendConfiguration;
+import io.trino.gateway.ha.router.BackendHealth;
 import io.trino.gateway.ha.router.GatewayBackendManager;
 import io.trino.gateway.ha.router.ResourceGroupsManager;
 import io.trino.gateway.ha.router.RoutingManager;
@@ -74,8 +75,8 @@ public class EntityEditorResource {
           ProxyBackendConfiguration backend =
               OBJECT_MAPPER.readValue(jsonPayload, ProxyBackendConfiguration.class);
           gatewayBackendManager.updateBackend(backend);
-          log.info("Setting up the backend {} with healthy state", backend.getName());
-          routingManager.upateBackEndHealth(backend.getName(), true);
+          log.info("Setting up the backend {} with pending health check state", backend.getName());
+          routingManager.updateBackendHealth(backend.getName(), BackendHealth.PENDING);
           break;
         case RESOURCE_GROUP:
           ResourceGroupsDetail resourceGroupDetails = OBJECT_MAPPER.readValue(jsonPayload,

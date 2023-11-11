@@ -7,7 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import com.google.inject.Injector;
+import io.trino.gateway.baseapp.BaseApp;
 import io.trino.gateway.ha.config.ProxyBackendConfiguration;
+import io.trino.gateway.ha.router.BackendHealth;
+import io.trino.gateway.ha.router.RoutingManager;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -18,6 +22,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestInstance.Lifecycle;
+import java.lang.reflect.Field;
 
 @TestInstance(Lifecycle.PER_CLASS)
 public class TestGatewayHaSingleBackend {
@@ -38,10 +43,20 @@ public class TestGatewayHaSingleBackend {
         HaGatewayTestUtils.buildGatewayConfigAndSeedDb(routerPort, "test-config-template.yml");
     // Start Gateway
     String[] args = {"server", testConfig.getConfigFilePath()};
-    HaGatewayLauncher.main(args);
+    HaGatewayLauncher haGatewayLauncher = new HaGatewayLauncher("io.trino");
+    haGatewayLauncher.run(args);
     // Now populate the backend
     HaGatewayTestUtils.setUpBackend(
-        "trino1", "http://localhost:" + backendPort, "externalUrl", true, "adhoc", routerPort);
+            "trino1", "http://localhost:" + backendPort, "externalUrl", true, "adhoc", routerPort);
+
+    // When a backend becomes active for the first time OR is transitioned from inactive to active it will not yet be
+    // treated as healthy. Without a real health check happening we will extract the RoutingManager and set them to healthy manually
+    Field privateInjectorField = BaseApp.class.
+            getDeclaredField("injector");
+    privateInjectorField.setAccessible(true);
+
+    Injector injector = (Injector) privateInjectorField.get(haGatewayLauncher);
+    injector.getInstance(RoutingManager.class).updateBackendHealth("trino1", BackendHealth.HEALTHY);
   }
 
   @Test

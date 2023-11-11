@@ -49,16 +49,17 @@ public class TestHaRoutingManager {
       proxyBackend.setProxyTo(backend + ".trino.example.com");
       proxyBackend.setExternalUrl("trino.example.com");
       backendManager.addBackend(proxyBackend);
-      //set backend as healthy start with
-      haRoutingManager.upateBackEndHealth(backend, true);
+      // set backend as healthy to start with
+      haRoutingManager.updateBackendHealth(backend, BackendHealth.HEALTHY);
     }
 
     //Keep only 1st backend as healthy, mark all the others as unhealthy
     assert (!backendManager.getAllActiveBackends().isEmpty());
 
+    // We will set the remaining backends as 50% UNHEALTHY and 50% PENDING to cover all 3 states
     for (int i = 1; i < numBackends; i++) {
       backend = groupName + i;
-      haRoutingManager.upateBackEndHealth(backend, false);
+      haRoutingManager.updateBackendHealth(backend, i % 2 == 0 ? BackendHealth.UNHEALTHY : BackendHealth.PENDING);
     }
 
     assert (haRoutingManager.provideBackendForRoutingGroup(groupName, "")
